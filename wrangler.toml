@@ -1,0 +1,12 @@
+name = "dadrides"
+pages_build_output_dir = "./site"
+compatibility_date = "2026-09-14"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "dadrides-local"
+database_id = "00000000-0000-0000-0000-000000000001"
+
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "dadrides-local"

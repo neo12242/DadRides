@@ -1,0 +1,13 @@
+node_modules/
+.wrangler/
+.dev.vars
+.dev.vars.*
+owner-local.txt
+.env
+.env.*
+site/vendor/
+*.log
+*.sqlite*
+*.db
+*.pem
+*.key
