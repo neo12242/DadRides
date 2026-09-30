@@ -11,3 +11,12 @@ site/vendor/
 *.db
 *.pem
 *.key
+
+# Local ownership review state and generated Worker bundle
+**/owner-key.txt
+site/_worker.js
+BRANDING-NOTES.md
+*.tar
+*.zip
+**/__pycache__/
+*.pyc

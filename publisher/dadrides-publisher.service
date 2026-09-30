@@ -1,0 +1,15 @@
+[Unit]
+Description=DadRides approved mod publisher
+After=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/apps/dadrides-publisher/publisher.env
+ExecStart=/usr/bin/python3 %h/apps/dadrides-publisher/worker.py
+Restart=on-failure
+RestartSec=30
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

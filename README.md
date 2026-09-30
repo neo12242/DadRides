@@ -1,88 +1,102 @@
 # DadRides
 
-A self-hosted public ride journal for selected rides, routes and photos from [RykerConnect](https://github.com/neo12242/RykerConnect). This repository contains the **website/API only**. The optional Android publishing integration remains in the RykerConnect APK, disabled by default; there is no separate add-on APK.
+Self-hosted ride journal, private modification tracker and publishing API for RykerConnect. Deploy on Cloudflare Pages using your own hostname and credentials. See [DEPLOYMENT.md](DEPLOYMENT.md) for deployment and rollback guidance.
 
-The site provides a public gallery, filters, ride details, route maps and photo galleries, plus authenticated owner preview/publish/replace/unpublish controls. It has no visitor accounts, comments, live tracking or video uploads. Hardware is not required to run this site. RykerConnect's physical hardware remains untested while it is being built.
+## Local preview
 
-## Local setup
-
-Use Node.js 22 or newer and npm. The lockfile pins the tested dependency versions. From this repository root:
+From this directory:
 
 ```powershell
 npm ci
-node scripts/setup-local.mjs
 npm run build
 npm run db:local
 npm run dev
 ```
 
-Open <http://127.0.0.1:8890/>. Wrangler runs Pages Functions with local D1 and R2 bindings. `wrangler.toml` intentionally has a placeholder local database ID. Do not use `--remote` for local setup/tests.
+The preview runs at http://127.0.0.1:8890. Optional illustrated DEMO rides are synthetic; a fresh checkout contains no local ride database. `node tests/seed-demo.mjs` seeds those examples only on localhost. It is not part of the production build.
 
-`setup-local.mjs` generates a fresh 256-bit owner key in ignored `owner-local.txt` and its SHA-256 digest in ignored `.dev.vars`. It refuses to overwrite either file. Do not commit/share these files. The key itself is needed for owner access; a Cloudflare account token is not a substitute. No existing personal key, database or ride history is shipped.
+The API and bindings run in Cloudflare's local runtime. `wrangler.toml` contains a deliberately local placeholder D1 identifier. Do not use `--remote` for tests.
 
-The initial gallery is empty. To load clearly labeled synthetic examples into this localhost preview, run in another terminal:
+### Read-only preview without the Cloudflare runtime
 
-```powershell
-node tests/seed-demo.mjs
-```
+If Windows blocks `workerd.exe`, use Node 24 or later and run `npm run preview`.
+Open http://127.0.0.1:8891. This reuses the existing API, `.dev.vars` digest,
+local D1 database and R2 images under `.wrangler/state/v3`. An existing standard
+local setup with built `site/vendor` assets is required; it does not seed data.
+The adapter expects one local D1 database, one R2 database, and the configured
+`dadrides-local` image bucket. Ambiguous databases cause startup to fail.
 
-This is an explicit local demonstration step, not part of the production build. Tests/fixtures are synthetic. Owner access holds the entered key only in browser memory, so refreshing requires re-entry.
+Click **Owner**, then copy the key from `owner-local.txt` into **Publishing key**.
+This ignored file is for local development only; do not share or deploy it.
+The preview binds only to `127.0.0.1`, opens both databases read-only, rejects
+all API writes and hides publishing/deletion controls. Nothing is deployed.
+Owner authentication and public/draft access checks still run through `worker.mjs`.
+This adapter is for viewing, not Cloudflare deployment validation. Stop the
+process to return to the normal Wrangler preview. `npm run test:preview` checks
+the adapter against isolated synthetic fixtures without touching your ride data.
 
-## Connect the Android app
+## Owner access
 
-Deploy your HTTPS site first. In RykerConnect → Settings → Add-ons, enable DadRides, enter your site origin and publishing key. The Android app encrypts its stored key with Android Keystore and excludes it from backups.
+One 256-bit random publishing key grants access to this site's owner API. It is **not a Cloudflare account token**. The API stores only its SHA-256 digest in `OWNER_TOKEN_SHA256`. The Android app encrypts the key with Android Keystore and stores the encrypted bytes in its no-backup directory. Manual browser login holds the entered key only in page memory. The app can also open the modification editor through a single-use, 60-second code exchanged for a 30-minute HttpOnly browser session.
 
-1. Open a saved ride → Ride summary & photos → Photos & publishing.
-2. Add/select photos, captions, tags and cover. Local photos work without enabling publishing.
-3. Prepare a public copy; review route trimming, selected photos and included statistics.
-4. Queue a **private draft**. Uploads prefer unmetered Wi-Fi; mobile data needs an explicit override. Retry is idempotent.
-5. Open owner preview on the website, enter the publishing key, inspect the exact revision and explicitly publish.
-6. Later edits require a new prepared revision and explicit replacement. Use Unpublish to remove the public version. Disabling the app add-on does not unpublish existing rides.
+Local development uses `.dev.vars` and `owner-local.txt`, both ignored by Git. Neither should be deployed or shared. Generate a different production key during the deployment review. Rotating the server digest revokes the old key immediately. Anyone holding the publishing key can manage this site's rides, so keep it private.
 
-## Deployment to Cloudflare Pages
+Owner endpoints require a Bearer authorization header or a valid browser session; cookie-authenticated writes require a matching Origin. Public visitors do not authenticate. Draft images are delivered through the authenticated API; the R2 bucket must remain private, with no r2.dev/public custom-domain exposure.
 
-Required resources: a Pages project, a D1 database bound as **DB**, and a **private** R2 bucket bound as **PHOTOS**. Keep R2 public access/r2.dev disabled. The API is Pages Functions under `functions/api/`; do not deploy a duplicate standalone Worker.
+## App workflow
 
-1. Create the D1 database and R2 bucket in your account. Update the database name/ID and bucket name in `wrangler.toml` with your own values.
-2. Initialize the intended production database with `schema.sql` using Wrangler's D1 command and `--remote`. Check the account/database selection before execution. Back up existing data before future schema changes.
-3. Create a Pages project connected to this repository. Build command: `npm ci && npm run build`. Output directory: `site`. Repository root: `/` (this is now a standalone repository).
-4. Configure production D1/R2 bindings with the exact names above. Bindings must also be configured separately if you use preview deployments.
-5. Generate a **new** production publishing key using a cryptographically secure generator. Store the key securely; set only its lowercase hex SHA-256 digest as the secret **OWNER_TOKEN_SHA256**. Never reuse the localhost key or put the raw key into Git, a URL, client JavaScript or Cloudflare configuration files.
-6. Deploy and verify HTTPS, an empty gallery, unauthorized owner-request rejection, and denial of draft/media access to anonymous visitors. Test one intentional sample through draft → publish → unpublish before enabling real uploads.
-7. Optionally attach your own custom domain through Pages. `rides.example.com` in documentation is a reserved example, not a deployed service.
+1. My Trips → saved ride → Ride summary & photos → Photos & publishing.
+2. Add images using Android's picker, choose cover, save captions, reorder and tag the ride. Local photos work with the add-on disabled.
+3. Settings → Add-ons → enable DadRides → configure the deployed site and its publishing key.
+4. Prepare a public copy from the ride journal. Review the endpoint privacy radius, route, selected photos and statistics. Choose Queue private draft.
+5. Uploads use unmetered Wi-Fi unless Allow mobile data is explicitly selected for that upload. Android may defer jobs. Failed uploads have Retry; canceling leaves any remote draft private.
+6. Review / publish on website opens owner preview. Sign in with the same publishing key, inspect the exact uploaded version, then publish explicitly.
+7. Local edits require a new prepared revision. The published version is unchanged until explicit replacement. Owner preview offers unpublish and delete for non-published versions.
 
-No production resources or DNS are provisioned by these instructions automatically. Only built `site` assets and compiled Functions should deploy. `.wrangler`, `.dev.vars`, `owner-local.txt`, local databases, tests and original private media do not belong in deployment uploads. R2 enrollment/billing and current Cloudflare limits need checking for your account; the application quota is not a billing cap.
+Disabling the add-on cancels scheduled work and network calls. Previously published rides stay online. Disconnect also deletes the locally stored encrypted key. Remove local upload copy removes only the queue's copied assets; it does not delete the local journal or remote version.
 
-## Privacy and limits
+## Storage, privacy and limits
 
-- Public image derivatives are JPEG, up to 1600 px on the long side (400 px thumbnails), re-encoded without EXIF. The API rejects EXIF-bearing JPEGs.
-- Per ride: up to 30 photos; originals up to 15 MB each. Website images up to 3 MB, thumbnails 500 KB; manifests up to 4 MB and 20,000 route points.
-- Public routes omit points within the reviewed endpoint radius, including later reentries, and preserve segment gaps. The initial radius is 500 m. Route/statistics can be omitted. Trimming does not guarantee anonymity; totals and visible landmarks may reveal information.
-- Public copies exclude parking, VIN, home address and maintenance records. Original local photos/backups may still contain private EXIF.
-- Storage reserves an application quota of 8 GB across versions, manifests and images. Failed uploads can reserve space until deleted. This does not cap bandwidth, operations or account billing.
-- Prepared local upload copies have a 20-item and approximate 250 MB soft preflight limit. Android backup has separate archive limits.
-- Public responses use `no-store` to support unpublishing. Previously downloaded or third-party copies cannot be recalled.
+- Local original: at most 15 MB per photo, 30 photos per ride. App-owned originals are separate from the phone-gallery source.
+- Website copy: JPEG, up to 1600 pixels on its longest side; thumbnail 400 pixels. Re-encoding strips EXIF; the API also rejects EXIF-bearing JPEGs.
+- Upload limits: 3 MB per website image, 500 KB per thumbnail, 20,000 route points and 4 MB manifest. Routes exceeding the point limit can be trimmed into a copy first.
+- The server uses an atomic 8 GB reservation quota including manifest bytes, all versions, draft images and thumbnails. Delete unused remote drafts/old versions to release reservations. Failed uploads reserve space until their remote version is deleted.
+- Local prepared copies are limited to 20 pending items and approximately 250 MB before preparation; an individual new job may exceed that soft local threshold. Remove old local copies when asked.
+- Public routes omit points within the chosen radius of either endpoint, including later reentries, and preserve separate segments. Entire route/statistics can be excluded. Public copies never include parking, VIN, home address or maintenance records. Photos are not automatically geotagged on the public map.
+- The starting privacy radius is 500 m, shown explicitly for review. It is not a guarantee of anonymity. Whole-ride totals may still be displayed when a route is trimmed.
+- Current photo-inclusive backups are bounded by the existing 100 MB archive limit and 90 MB photo preflight. If exceeded, backup stops with an error rather than omitting photos. Original image data, including original EXIF, is inside the private backup.
+- D1 stores metadata and manifests; R2 stores images. The application quota does not cap traffic, R2 operations, or other account-wide usage. A $0 target is not a guaranteed billing cap.
+- Public API and image responses use no-store so unpublishing takes effect without relying on a CDN purge. Previously downloaded or third-party copies cannot be recalled.
 
-## Tests and troubleshooting
+## Tests
 
-With the isolated local server running on port 8890:
+With the local server running, `npm test` tests private/public separation, schema validation, EXIF rejection, checksum failure/retry, draft completion, duplicate uploads, publication conflicts, unpublish, and concurrent quota reservations. It temporarily changes only the local quota and restores it in finally. API test rides are removed afterward.
 
-```powershell
-npm test
-```
+The Android `DadRidesIntegrationTest` runs against port 8890 through `adb reverse`. It overrides storage and preferences into isolated test directories and checks photo ingestion, backup restore, duplicate queue suppression, private upload, and disabled publishing. It takes UI screenshots using synthetic records. Run through `adb shell am instrument`, **not Gradle connectedDebugAndroidTest**, because that Gradle runner can uninstall the target app and erase working emulator data.
 
-Tests use the local owner key, create synthetic rides, check private/public separation, photo validation/retry, conflicts, unpublish and quota reservation, then clean up their test data. They temporarily change the **local** quota and restore it. Do not point these tests at production or a local database containing valuable records.
+## Cloudflare deployment design
 
-If owner requests return 401, confirm `.dev.vars` contains the hash of the key you entered and restart Wrangler after changes. If maps are missing, run `npm run build` and check external map access/CSP. If binding/database errors appear, check DB/PHOTOS names and run the local schema step. If port 8890 is occupied, identify the existing process before starting another server. Keep local owner files out of diagnostic reports.
+Resource design (production IDs and current status are recorded in [DEPLOYMENT.md](DEPLOYMENT.md)):
 
-Android integration tests use `adb reverse tcp:8890 tcp:8890` and isolated test storage. Use a dedicated emulator; the Gradle instrumentation runner can uninstall the target app and erase data. Ordinary app configuration expects HTTPS; localhost HTTP is for explicit debug/test paths.
+| Resource | Proposed setup |
+|---|---|
+| Pages project | `dadrides`, repository root, build `npm ci && npm run build`, output `site` |
+| API | Pages Functions `/api/*`; no separate duplicate Worker service |
+| D1 | `dadrides`, bound as `DB`, initialized with `schema.sql` |
+| R2 | private Standard bucket `dadrides-media`, bound as `PHOTOS` |
+| Secret | `OWNER_TOKEN_SHA256`, new production digest |
+| Domain | `rides.example.com`, attached through Pages custom domains |
+| DNS | Only the `DadRides` host record, after checking the existing zone and Pages-assigned target |
 
-## Recovery
+Before provisioning: verify zone/account access, resource-name availability, existing usage/free allowances, R2 enrollment requirements and the final hostname target. Do not upgrade any paid plan without approval. If a conflicting DNS record exists, retain it and review replacement explicitly.
 
-Keep a backup of production D1/R2 before maintenance. For a bad website deployment, roll Pages back to the previous deployment and preserve stored data. Rotate the owner digest if a key is exposed; rotation immediately revokes the old key. Unpublish deliberately through owner controls; deleting a Git commit is not a way to recall published data.
+After approval: provision/bind resources, run the production schema, deploy with no demo data, attach the custom domain, verify HTTPS and anonymous draft denial, and use an approved sample for publish/unpublish checks. Keep `.dev.vars`, the local owner key, `.wrangler`, test fixtures and local database out of deployment. Only built `site` assets and compiled Pages Functions ship.
 
-## References and attribution
+Backout: disable the app add-on, roll Pages back to the prior deployment when one exists, and revert only the reviewed DNS record. Retain D1/R2 content; do not delete resources as a rollback shortcut. Take remote backups before later destructive maintenance.
 
-[RykerConnect upstream](https://github.com/JanB97/RykerConnect), [Pages bindings](https://developers.cloudflare.com/pages/functions/bindings/), [Pages local development](https://developers.cloudflare.com/pages/functions/local-development/), [D1](https://developers.cloudflare.com/d1/), [R2](https://developers.cloudflare.com/r2/).
+## References
 
-Uses MapLibre GL JS (see its package license) and the map/style providers identified in the site. Preserve map attribution. This repository is separated from the RykerConnect development workspace; Android integration source remains in that project's GPL-3.0 fork. A separate license grant for the new website code has not yet been selected.
+- [Pages Functions bindings](https://developers.cloudflare.com/pages/functions/bindings/)
+- [Local Cloudflare development](https://developers.cloudflare.com/workers/local-development/)
+- [R2 pricing](https://developers.cloudflare.com/r2/pricing/)
+- [D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/)

@@ -1,6 +1,6 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';import {readFile} from 'node:fs/promises';import {randomUUID} from 'node:crypto';import {validate,sha,safeJpeg} from '../worker.mjs';
 import {execFileSync} from 'node:child_process';
-const origin='http://127.0.0.1:8890';const token=(await readFile(new URL('../owner-local.txt',import.meta.url),'utf8')).trim();
+const origin=process.env.DADRIDES_TEST_ORIGIN||'http://127.0.0.1:8890';const token=(await readFile(new URL('../owner-local.txt',import.meta.url),'utf8')).trim();
 const request=async(path,method='GET',body,owner=true)=>{const r=await fetch(origin+'/api/'+path,{method,headers:{...(owner?{Authorization:'Bearer '+token}:{}),'content-type':'application/json'},body:body===undefined?undefined:typeof body==='string'?body:JSON.stringify(body)});return {status:r.status,data:await r.json()}};
 const manifest=id=>({version:1,id,title:'TEST — local only',story:'No personal ride data.',date:'2026-09-14',tags:['test'],cover:'',photos:[],route:[[[0,0],[0.01,0.01]]],stats:{meters:1000,elapsedMs:600000},privacy:{trimMeters:500,statsIncluded:true}});
 test('private schema rejects extra fields and excessive coordinates',()=>{assert.throws(()=>validate({...manifest(randomUUID()),parking:{lat:1}}));assert.throws(()=>validate({...manifest(randomUUID()),route:[[[999,1]]]}));assert.throws(()=>validate({...manifest(randomUUID()),photos:[{id:randomUUID(),caption:'x',sha:'bad'}]}))});
@@ -41,7 +41,7 @@ test('photo upload resumes after checksum failure and private media stays privat
 test('concurrent draft reservations cannot exceed the configured quota',async()=>{
  const originals=await request('owner/status');const originalsQuota=originals.data.quota;
  const manifests=[manifest(randomUUID()),manifest(randomUUID())];const payloads=await Promise.all(manifests.map(async m=>({m,text:JSON.stringify(m),rev:await sha(new TextEncoder().encode(JSON.stringify(m)))})));
- const run=sql=>execFileSync(process.execPath,['node_modules/wrangler/bin/wrangler.js','d1','execute','DB','--local','--command',sql],{stdio:'pipe'});
+  const run=sql=>execFileSync(process.execPath,['node_modules/wrangler/bin/wrangler.js','d1','execute','DB','--local',...(process.env.DADRIDES_TEST_PERSIST_TO?['--persist-to',process.env.DADRIDES_TEST_PERSIST_TO]:[]),'--command',sql],{stdio:'pipe'});
  try{
   run(`UPDATE limits SET quota=${originals.data.used+Buffer.byteLength(payloads[0].text)+10} WHERE id=1`);
   const results=await Promise.all(payloads.map(p=>request(`owner/rides/${p.m.id}/revisions/${p.rev}`,'PUT',p.text)));
